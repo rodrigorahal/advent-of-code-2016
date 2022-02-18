@@ -68,7 +68,7 @@ def dimensions(nodes: List[Node]):
 
 
 def neighbors(row, col, height, width):
-    r = []
+    result = []
     for dr in [-1, 0, 1]:
         for dc in [-1, 0, 1]:
             if (
@@ -76,157 +76,12 @@ def neighbors(row, col, height, width):
                 and 0 <= col + dc <= width
                 and 0 <= row + dr <= height
             ):
-                r.append((row + dr, col + dc))
-    return r
+                result.append((row + dr, col + dc))
+    return result
 
 
-def free(state, row, col, H, W, seen=None, steps=0):
-    if not seen:
-        seen = set()
-
-    seen.add((row, col))
-
-    moves = []
-    a = state[row][col]
-
-    # print(f"Freeing {row},{col}")
-    for nrow, ncol in neighbors(row, col, H, W):
-        b = state[nrow][ncol]
-        # print(f"Trying {nrow},{ncol}")
-        if (nrow, ncol) in seen:
-            # print(f"Seen {nrow},{ncol}")
-            continue
-        elif can_move(a, b):
-            # print(f"Can move to {nrow},{ncol}")
-            moves.append((move(state, a, b), steps + 1))
-        elif is_possible_if_free(a, b):
-            deep_moves = free(state, nrow, ncol, H, W, seen, steps)
-            # print(f"At: {row,col} Deep moves from {nrow,ncol}: {len(deep_moves)}")
-            for deep_state, deep_steps in deep_moves:
-                # print("Deep state")
-                # display(deep_state)
-                if can_move(deep_state[row][col], deep_state[nrow][ncol]):
-                    moves.append(
-                        (
-                            move(
-                                deep_state, deep_state[row][col], deep_state[nrow][ncol]
-                            ),
-                            steps + deep_steps + 1,
-                        )
-                    )
-    # print(f"Returning from {row},{col}: {len(moves)}")
-    return moves
-
-
-def move(state: List[List[Node]], a: Node, b: Node):
-    moved_state = deepcopy(state)
-    row, col = a.position
-    nrow, ncol = b.position
-
-    moved_state[row][col] = Node(
-        id=a.id,
-        size=a.size,
-        used=0,
-        avail=a.size,
-        use=0,
-        position=a.position,
-    )
-
-    moved_state[nrow][ncol] = Node(
-        id=b.id,
-        size=b.size,
-        used=a.used + b.used,
-        avail=b.avail - a.used,
-        use=b.used,
-        position=b.position,
-    )
-    return moved_state
-
-
-def search(grid, start, target):
-    H = len(grid) - 1
-    W = len(grid[0]) - 1
-
-    queue = deque()
-    queue.append((grid, start, 0, set()))
-
-    seen_states = set()
-
-    min_steps = None
-
-    while queue:
-        state, (row, col), steps, seen = queue.popleft()
-
-        # if (row, col) in seen_states:
-        #     continue
-
-        hashed = _hash(state, (row, col))
-
-        if hashed in seen_states:
-            continue
-
-        seen_states.add(hashed)
-
-        print(f"we are at: {row,col}")
-
-        if min_steps and steps > min_steps:
-            continue
-
-        if (row, col) == target:
-            if not min_steps:
-                min_steps = steps
-            else:
-                if steps < min_steps:
-                    min_steps = steps
-            continue
-
-        print(f"--------------- {min_steps} ----------")
-
-        a = state[row][col]
-
-        for nrow, ncol in neighbors(row, col, len(grid) - 1, len(grid[0]) - 1):
-            if (nrow, ncol) in seen:
-                continue
-            b = state[nrow][ncol]
-            if can_move(a, b):
-                queue.append(
-                    (
-                        move(state, a, b),
-                        b.position,
-                        steps + 1,
-                        {*seen} | {a.position},
-                    )
-                )
-            elif is_possible_if_free(a, b):
-                deep_states = free(state, nrow, ncol, H, W, {a.position})
-                if deep_states:
-                    ss = sorted(deep_states, key=itemgetter(1))
-                    deep_state, deep_steps = ss[0]
-
-                    # for deep_state, deep_steps in deep_states:
-                    queue.append(
-                        (
-                            move(
-                                deep_state, deep_state[row][col], deep_state[nrow][ncol]
-                            ),
-                            b.position,
-                            steps + deep_steps + 1,
-                            {*seen} | {a.position},
-                        )
-                    )
-        queue = deque(sorted(queue, key=itemgetter(2, 1)))
-    return min_steps
-
-
-def _hash(state, curr):
-    flat = [curr]
-    for row in state:
-        for node in row:
-            flat.append((node.id, node.used, node.size))
-    return tuple(flat)
-
-
-def to_grid(nodes_by_position, H, W):
+def to_grid(nodes, H, W):
+    nodes_by_position = dict((node.position, node) for node in nodes)
     grid = []
     for r in range(H):
         row = []
@@ -263,7 +118,7 @@ def swap_disk(pairs: Tuple[Node, Node]) -> Node:
     return next(iter(destinations))
 
 
-def bfs(grid, start, target):
+def search(grid, start, target):
     H = len(grid) - 1
     W = len(grid[0]) - 1
 
@@ -280,7 +135,7 @@ def bfs(grid, start, target):
         seen.add((row, col))
 
         if (row, col) == target:
-            return steps
+            break
 
         a = grid[row][col]
 
@@ -288,6 +143,10 @@ def bfs(grid, start, target):
             b = grid[nrow][ncol]
             if is_possible_if_free(a, b):
                 queue.append(((nrow, ncol), steps + 1))
+
+    # move swap disk to the right of target node
+    # perform a 5-step cycle to get target to 0,0 (W-1) times
+    return steps + 1 + (W - 1) * 5
 
 
 def calculate(steps, W):
@@ -298,20 +157,11 @@ def main():
     nodes = parse()
     pairs = viable(nodes)
     print(f"Part 1: {len(pairs)}")
-
-    node_by_position = dict((node.position, node) for node in nodes)
-
     H, W = dimensions(nodes)
-    print(H, W)
-
     SWAP = swap_disk(pairs)
-    print(SWAP)
-
-    grid = to_grid(node_by_position, H + 1, W + 1)
-
-    s = bfs(grid, start=SWAP.position, target=(0, W - 1))
-    print(s)
-    print(calculate(s, W))
+    grid = to_grid(nodes, H + 1, W + 1)
+    steps = search(grid, start=SWAP.position, target=(0, W - 1))
+    print(f"Part 2: {steps}")
 
 
 if __name__ == "__main__":
